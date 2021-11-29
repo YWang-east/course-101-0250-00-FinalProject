@@ -1,1 +1,1 @@
-# Part 2: another PDE
+# Part 2: Thermal mechanical coupling
