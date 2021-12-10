@@ -2,4 +2,5 @@
 /Manifest.toml
 .vscode
 scripts-part1/Diffusion_2D_1proc.jl
-
+mpiexecjl
+juliaopen
