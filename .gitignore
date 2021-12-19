@@ -2,5 +2,10 @@
 /Manifest.toml
 .vscode
 scripts-part1/Diffusion_2D_1proc.jl
+scripts-part1/diffusion2D_perf_XPU.jl
+scripts-part1/diffusion3D_gpu.jl
 mpiexecjl
 juliaopen
+plots_out1
+plots_out2
+plot_perf.jl
