@@ -1,7 +1,7 @@
 # Part 2: Thermomechanical coupling
 using Plots, Printf
 
-@views function TM_2D(; do_visu = false)
+@views function TM_2D_baseline(; do_visu = false)
   # Physics
   Lx, Ly = 0.86038, 0.86038     # domain size 
   n      = 3                    # power law rheology exponent
@@ -11,7 +11,7 @@ using Plots, Printf
   Tamp   = 0.1*T0               # perturbation temperature
 
   # Numerics
-  nx, ny = 32*2^2, 32*2^2       # grid size
+  nx, ny = 32*2^2-2, 32*2^2-2       # grid size
   dx, dy = Lx/nx, Ly/ny         # gris step
   tol    = 1e-5                 # non-linear tolerance
   ξ      = 10.0                 # physical steps reduction for temperature
@@ -21,10 +21,10 @@ using Plots, Printf
   ηb     = 1.0                  # numerical bulk viscosity
   θη     = 0.9                  # relaxation factor for viscosity
   ν      = 4.0                  # damping factor for velocity residuals
-  nt     = 54                   # number of time steps
+  nt     = 1                   # number of time steps
   nout   = 100                  # residuals checking step
   n_vis  = 2                    # visualization step
-  iter_max = 1e6                # max PT iterations
+  iter_max = 1                # max PT iterations
 
   # Derived numerics
   dt    = ξ*min(dx, dy)^2/4.1   # physical time step  
@@ -123,7 +123,6 @@ using Plots, Printf
 
   end # end physical stepping 
     
-  return
+  return ηc, ηv, dVxdτ, dVydτ, Vx, Vy, P, T
 end
 
-TM_2D(; do_visu=true)

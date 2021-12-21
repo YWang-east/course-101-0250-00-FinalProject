@@ -1,25 +1,25 @@
 # Part 2: Thermomechanical coupling
-# const USE_GPU = true
+const GPU_USE = false
 using ParallelStencil
 using ParallelStencil.FiniteDifferences2D
-# @static if USE_GPU
-#     @init_parallel_stencil(CUDA, Float64, 2)
-# else
-#     @init_parallel_stencil(Threads, Float64, 2)
-# end
+@static if GPU_USE
+    @init_parallel_stencil(CUDA, Float64, 2)
+else
+    @init_parallel_stencil(Threads, Float64, 2)
+end
 using Plots, Printf, ImplicitGlobalGrid
 import MPI
 
 # macros to avoid array allocation
-macro  ∇V(ix,iy)  esc(:(               (Vx[$ix+1,$iy]-Vx[$ix,$iy  ])/dx + (Vy[$ix,$iy+1]-Vy[$ix  ,$iy])/dy  )) end
-macro ϵxx(ix,iy)  esc(:(         0.5*( (Vx[$ix+1,$iy]-Vx[$ix,$iy  ])/dx - (Vy[$ix,$iy+1]-Vy[$ix  ,$iy])/dy) )) end
-macro τxx(ix,iy)  esc(:( ηc[$ix,$iy]*( (Vx[$ix+1,$iy]-Vx[$ix,$iy  ])/dx - (Vy[$ix,$iy+1]-Vy[$ix  ,$iy])/dy + 2*λb*(Vx[$ix+1,$iy]-Vx[$ix,$iy])/dx + (Vy[$ix,$iy+1]-Vy[$ix,$iy])/dy) - P[$ix,$iy] )) end
-macro ϵyy(ix,iy)  esc(:(         0.5*(-(Vx[$ix+1,$iy]-Vx[$ix,$iy  ])/dx + (Vy[$ix,$iy+1]-Vy[$ix  ,$iy])/dy) )) end
-macro τyy(ix,iy)  esc(:( ηc[$ix,$iy]*(-(Vx[$ix+1,$iy]-Vx[$ix,$iy  ])/dx + (Vy[$ix,$iy+1]-Vy[$ix  ,$iy])/dy + 2*λb*(Vx[$ix+1,$iy]-Vx[$ix,$iy])/dx + (Vy[$ix,$iy+1]-Vy[$ix,$iy])/dy) - P[$ix,$iy] )) end
-macro ϵxy(ix,iy)  esc(:(         0.5*(  Vx[$ix  ,$iy]-Vx[$ix,$iy-1])/dy + (Vy[$ix,$iy  ]-Vy[$ix-1,$iy])/dx  )) end
-macro τxy(ix,iy)  esc(:( ηv[$ix,$iy]*( (Vx[$ix  ,$iy]-Vx[$ix,$iy-1])/dy + (Vy[$ix,$iy  ]-Vy[$ix-1,$iy])/dx) )) end  
-macro  qx(ix,iy)  esc(:( -(T[$ix,$iy] - T[$ix-1,$iy  ])/dx )) end
-macro  qy(ix,iy)  esc(:( -(T[$ix,$iy] - T[$ix  ,$iy-1])/dy )) end
+macro  ∇V(ix,iy)  esc(:(               (Vx[$ix,$iy]-Vx[$ix-1,$iy])/dx + (Vy[$ix,$iy]-Vy[$ix,$iy-1])/dy  )) end
+macro ϵxx(ix,iy)  esc(:(         0.5*( (Vx[$ix,$iy]-Vx[$ix-1,$iy])/dx - (Vy[$ix,$iy]-Vy[$ix,$iy-1])/dy) )) end
+macro τxx(ix,iy)  esc(:( ηc[$ix,$iy]*( (Vx[$ix,$iy]-Vx[$ix-1,$iy])/dx - (Vy[$ix,$iy]-Vy[$ix,$iy-1])/dy + 2*λb*(Vx[$ix,$iy]-Vx[$ix-1,$iy])/dx + (Vy[$ix,$iy]-Vy[$ix,$iy-1])/dy) - P[$ix,$iy] )) end
+macro ϵyy(ix,iy)  esc(:(         0.5*(-(Vx[$ix,$iy]-Vx[$ix-1,$iy])/dx + (Vy[$ix,$iy]-Vy[$ix,$iy-1])/dy) )) end
+macro τyy(ix,iy)  esc(:( ηc[$ix,$iy]*(-(Vx[$ix,$iy]-Vx[$ix-1,$iy])/dx + (Vy[$ix,$iy]-Vy[$ix,$iy-1])/dy + 2*λb*(Vx[$ix,$iy]-Vx[$ix-1,$iy])/dx + (Vy[$ix,$iy]-Vy[$ix,$iy-1])/dy) - P[$ix,$iy] )) end
+macro ϵxy(ix,iy)  esc(:(         0.5*(  Vx[$ix,$iy+1]-Vx[$ix,$iy])/dy + (Vy[$ix+1,$iy]-Vy[$ix,$iy])/dx  )) end
+macro τxy(ix,iy)  esc(:( ηv[$ix,$iy]*( (Vx[$ix,$iy+1]-Vx[$ix,$iy])/dy + (Vy[$ix+1,$iy]-Vy[$ix,$iy])/dx) )) end  
+macro  qx(ix,iy)  esc(:( -(T[$ix+1,$iy+1] - T[$ix,$iy+1])/dx )) end
+macro  qy(ix,iy)  esc(:( -(T[$ix+1,$iy+1] - T[$ix+1,$iy])/dy )) end
 macro   S(ix,iy)  esc(:( 4* ηc[$ix,$iy]* ϵii2[$ix,$iy]^2 )) end
 macro  η0(ix,iy)  esc(:( ϵii2[$ix,$iy]^(1/n-1)*exp( -T[$ix,$iy]*(1 /(1+T[$ix,$iy]/T0)) ) )) end
 
@@ -28,44 +28,66 @@ macro dτVx(ix,iy)  esc(:( θv/4.1*min(dx,dy)^2 /(ηc[$ix,$iy]+ηc[$ix+1,$iy])/2
 macro dτVy(ix,iy)  esc(:( θv/4.1*min(dx,dy)^2 /(ηc[$ix,$iy]+ηc[$ix,$iy+1])/2/(1.0+λb) )) end
 macro  dτT(ix,iy)  esc(:( θT/4.1*min(dx,dy)^2 )) end
 
+@parallel_indices (ix,iy) function update_damping!(dVxdτ0, dVydτ0, dVxdτ, dVydτ, dampx, dampy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
+  if ( ix<=size_Vx1 && iy<=size_Vx2 ) dVxdτ0[ix,iy] = dVxdτ[ix,iy] + dampx * dVxdτ0[ix,iy] end
+  if ( ix<=size_Vy1 && iy<=size_Vy2 ) dVydτ0[ix,iy] = dVydτ[ix,iy] + dampy * dVydτ0[ix,iy] end
+  return
+end
 
 @parallel_indices (ix,iy) function compute_2invar!(ϵii2, Vx, Vy, dx, dy, nx, ny)
-  if     (ix==1  && iy==1 ) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*@ϵxy(ix+1,iy+1))^2 )^0.5  # bottom-left corner
-  elseif (ix==nx && iy==1 ) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*@ϵxy(ix  ,iy+1))^2 )^0.5  # bottom-right corner
-  elseif (ix==1  && iy==ny) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*@ϵxy(ix+1,iy  ))^2 )^0.5  # top-left corner
-  elseif (ix==nx && iy==ny) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*@ϵxy(ix  ,iy  ))^2 )^0.5  # top-right corner 
-  elseif (ix==1  && iy>1 && iy<ny) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*(@ϵxy(ix+1,iy  )+@ϵxy(ix+1,iy+1)))^2 )^0.5   # left edge
-  elseif (ix==nx && iy>1 && iy<ny) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*(@ϵxy(ix  ,iy  )+@ϵxy(ix  ,iy+1)))^2 )^0.5   # right edge
-  elseif (iy==1  && ix>1 && ix<nx) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*(@ϵxy(ix  ,iy+1)+@ϵxy(ix+1,iy+1)))^2 )^0.5   # bottom edge
-  elseif (iy==ny && ix>1 && ix<nx) ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*(@ϵxy(ix  ,iy  )+@ϵxy(ix+1,iy  )))^2 )^0.5   # top edge
-  else ϵii2[ix,iy] = ( 0.5*(@ϵxx(ix,iy)^2 + @ϵyy(ix,iy)^2) + (0.25*(@ϵxy(ix,iy) + @ϵxy(ix+1,iy) + @ϵxy(ix,iy+1) + @ϵxy(ix+1,iy+1)))^2 )^0.5 # inner points
+  if ( ix<=(nx-2) && iy<=(ny-2) ) 
+    ϵii2[ix+1,iy+1] = ( 0.5*(@ϵxx(ix+1,iy+1)^2 + @ϵyy(ix+1,iy+1)^2) + (0.25*(@ϵxy(ix,iy) + @ϵxy(ix+1,iy) + @ϵxy(ix,iy+1) + @ϵxy(ix+1,iy+1)))^2 )^0.5 
   end
   return
 end
 
-@parallel_indices (ix,iy) function compute_viscosity!(ηc, ηv, ϵii2, n, T, T0, θη)
-  if (ix<=nx && iy<=ny) 
-    ηc[ix,iy] = exp( θη*log(ηc[ix,iy]) + (1-θη)*log(@η0(ix,iy)) ) 
-    if (ix>1 && iy>1)  ηv[ix,iy] = 0.25*( ηc[ix-1,iy-1] + ηc[ix-1,iy] + ηc[ix,iy-1] + ηc[ix,iy] ) end
+@parallel_indices (ix,iy) function compute_viscosity_c!(ηc, ϵii2, n, T, T0, θη, nx, ny)
+  if ( ix<=(nx-2) && iy<=(ny-2) ) 
+    ηc[ix+1,iy+1] = exp( θη*log(ηc[ix+1,iy+1]) + (1-θη)*log(@η0(ix+1,iy+1)) ) 
   end
   return
 end
 
-@parallel_indices (ix,iy) function compute_residuals!(dPdτ, dVxdτ, dVydτ, dTdτ, P, Vx, Vy, T, Tt, ηc, ηv, ϵii2, n, T0, θp, θv, θT, θη, λb)
-  if (ix<=nx && iy<=ny)
-    
-  else
-     dPdτ[ix,iy] = - @∇V(ix,iy)
-    dVxdτ[ix,iy] = (@τxy(ix+1,iy+1)-@τxy(ix+1,iy  ))/dy + (@τxx(ix+1,iy  )-@τxx(ix,iy))/dx
-    dVydτ[ix,iy] = (@τxy(ix+1,iy+1)-@τxy(ix  ,iy+1))/dx + (@τyy(ix  ,iy+1)-@τyy(ix,iy))/dy
-     dTdτ[ix,iy] = (Tt[ix,iy]-T[ix,iy])/dt - (@qx(ix+1,iy)-@qx(ix,iy))/dx - (@qy(ix,iy+1)-@qy(ix,iy))/dy + @S(ix,iy)
+@parallel_indices (ix,iy) function compute_viscosity_v!(ηv, ηc, size_ηv1, size_ηv2)
+  if ( ix<=size_ηv1 && iy<=size_ηv2 ) 
+    ηv[ix,iy] = 0.25*( ηc[ix,iy] + ηc[ix+1,iy] + ηc[ix,iy+1] + ηc[ix+1,iy+1] ) 
   end
   return
 end
+
+@parallel_indices (ix,iy) function compute_residuals_P_T!(dPdτ, dTdτ, P, Vx, Vy, T, Tt, ηc, ϵii2, n, T0, dt, dx, dy, nx, ny)
+  if ( ix<=(nx-2) && iy<=(ny-2) )
+    dPdτ[ix+1,iy+1] = - @∇V(ix+1,iy+1)
+    dTdτ[ix+1,iy+1] = (Tt[ix+1,iy+1]-T[ix+1,iy+1])/dt - (@qx(ix+1,iy)-@qx(ix,iy))/dx - (@qy(ix,iy+1)-@qy(ix,iy))/dy + @S(ix+1,iy+1)  
+  end
+  return
+end
+
+@parallel_indices (ix,iy) function compute_residuals_Vx_Vy!(dVxdτ, dVydτ, P, Vx, Vy, ηv, ηc, λb, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
+  if ( ix<=(size_Vx1-2) && iy<=(size_Vx2-2) ) dVxdτ[ix+1,iy+1] = (@τxy(ix+1,iy+1) - @τxy(ix+1,iy))/dy + (@τxx(ix+2,iy+1) - @τxx(ix+1,iy+1))/dx end
+  if ( ix<=(size_Vy1-2) && iy<=(size_Vy2-2) ) dVydτ[ix+1,iy+1] = (@τxy(ix+1,iy+1) - @τxy(ix,iy+1))/dx + (@τyy(ix+1,iy+2) - @τyy(ix+1,iy+1))/dy end
+  return
+end
+
+@parallel_indices (ix,iy) function stepping_pseudo_P_T!(P, T, dPdτ, dTdτ, ηc, θp, θT, λb, dx, dy, nx, ny)
+  if ( ix<=(nx-2) && iy<=(ny-2) )
+    P[ix+1,iy+1] = P[ix+1,iy+1] + @dτP(ix+1,iy+1)*dPdτ[ix+1,iy+1]
+    T[ix+1,iy+1] = T[ix+1,iy+1] + @dτT(ix+1,iy+1)*dTdτ[ix+1,iy+1] 
+  end
+  return
+end  
+
+@parallel_indices (ix,iy) function stepping_pseudo_Vx_Vy!(Vx, Vy, dVxdτ, dVydτ, dVxdτ0, dVydτ0, ηc, λb, θv, dampx, dampy, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
+  if ( ix<=(size_Vx1-2) && iy<=(size_Vx2-2) ) Vx[ix+1,iy+1] = Vx[ix+1,iy+1] + @dτVx(ix+1,iy+1)*( dVxdτ[ix+1,iy+1]+ dampx*dVxdτ0[ix+1,iy+1] )  end
+  if ( ix<=(size_Vy1-2) && iy<=(size_Vy2-2) ) Vy[ix+1,iy+1] = Vy[ix+1,iy+1] + @dτVy(ix+1,iy+1)*( dVydτ[ix+1,iy+1]+ dampy*dVydτ0[ix+1,iy+1] ) end
+  return
+end
+
+@views norm_g(A) = (sum2_l = sum(A.^2); sqrt(MPI.Allreduce(sum2_l, MPI.SUM, MPI.COMM_WORLD)))
 
 @views function TM_2D(; do_visu = false)
   # Physics
-  Lx, Ly = 0.86038, 0.86038     # domain size 
+  Lx, Ly = 0.86038, 0.86038     # global domain size 
   n      = 3                    # power law rheology exponent
   Vbc    = 66.4437              # boundary velocity  
   T0     = 49.3269 / n          # initial temperature
@@ -73,92 +95,128 @@ end
   Tamp   = 0.1*T0               # perturbation temperature
 
   # Numerics
-  nx, ny = 32*2^2, 32*2^2       # grid size
-  dx, dy = Lx/nx, Ly/ny         # gris step
+  nx, ny = 32*2^2, 32*2^2       # local grid size
   tol    = 1e-5                 # non-linear tolerance
   ξ      = 10.0                 # physical steps reduction for temperature
   θp,θv,θT = 0.5, 0.5, 0.5                  # PT steps reduction for pressure, velocities and temperature 
   λb     = 1.0                  # numerical bulk viscosity
   θη     = 0.9                  # relaxation factor for viscosity
   ν      = 4.0                  # damping factor for velocity residuals
-  nt     = 54                   # number of time steps
-  nout   = 100                  # residuals checking step
+  nt     = 1                   # number of time steps
+  n_check  = 100                  # residuals checking step
   n_vis  = 2                    # visualization step
-  iter_max = 1e6                # max PT iterations
+  iter_max = 1                # max PT iterations
   
   # Derived numerics
-  dt    = ξ*min(dx, dy)^2/4.1   # physical time step  
-  dampx = 1 - ν/nx              # damping for x-momentum residuals
-  dampy = 1 - ν/ny              # damping for y-momentum residuals
-    
-  # Grid: staggered
-    xn,   yn = LinRange(0   , Lx     , nx+1), LinRange(0   , Ly     , ny+1)   # cell interface
-    xc,   yc = LinRange(dx/2, Lx-dx/2, nx  ), LinRange(dy/2, Ly-dy/2, ny  )   # cell center
-    Xc,   Yc = repeat(xc, 1, ny  ), repeat(yc', nx  , 1)                      # location of scalar quantities
-  X_fx, Y_fx = repeat(xn, 1, ny  ), repeat(yc', nx+1, 1)                      # location of x-fluxes  
-  X_fy, Y_fy = repeat(xc, 1, ny+1), repeat(yn', nx  , 1)                      # location of y-fluxes
+  me, dims = init_global_grid(nx, ny, 1)  # Initialize 2D MPI 
+  @static if GPU_USE select_device() end  # select one GPU per MPI local rank (if >1 GPU per node)
+  dx, dy = Lx/(nx_g()-2), Ly/(ny_g()-2)
+  dt     = ξ*min(dx, dy)^2/4.1   # physical time step  
+  dampx  = 1 - ν/nx              # damping for x-momentum residuals
+  dampy  = 1 - ν/ny              # damping for y-momentum residuals
 
   # Array initialisation
-  P      = zeros(Float64, nx  , ny  )   # pressure 
-  T      = zeros(Float64, nx  , ny  )   # temperature
-  Tt     = zeros(Float64, nx  , ny  )   # temperature at current physical time step
-  ηc     =  ones(Float64, nx  , ny  )   # effective viscosity at cell centroids
-  ηv     =  ones(Float64, nx+1, ny+1)   # effective viscosity at cell vertices
-  Vx     = zeros(Float64, nx+1, ny  )   # x-velocity 
-  Vy     = zeros(Float64, nx  , ny+1)   # y-velocity
-  dVxdτ  = zeros(Float64, nx-1, ny  )   # x-momentum residuals
-  dVydτ  = zeros(Float64, nx  , ny-1)   # y-momentum residuals
+  P      = @zeros(nx  , ny  )    # pressure 
+  T      = @zeros(nx  , ny  )    # temperature
+  Tt     = @zeros(nx  , ny  )    # temperature at current physical time step
+  ηc     =  @ones(nx  , ny  )    # effective viscosity at cell centroids
+  ηv     =  @ones(nx-1, ny-1)    # effective viscosity at cell vertices
+  Vx     = @zeros(nx-1, ny  )    # x-velocity 
+  Vy     = @zeros(nx  , ny-1)    # y-velocity
+  ϵii2   = @zeros(nx  , ny  )    # 2nd order invariant
+  dPdτ   = copy(P)                        # continuity residuals
+  dTdτ   = copy(T)                        # temperature residuals
+  dVxdτ  = copy(Vx)                       # x-momentum residuals
+  dVydτ  = copy(Vy)                       # y-momentum residuals
   dVxdτ0 = copy(dVxdτ)
   dVydτ0 = copy(dVydτ)
-    
-  # Initial conditions
-  Vx  .=  Vbc.*X_fx./Lx
-  Vy  .= -Vbc.*Y_fy./Ly
-  T[(Xc.^2 .+ Yc.^2) .< r^2] .= Tamp
+  size_Vx1, size_Vx2 = size(Vx,1), size(Vx,2)
+  size_Vy1, size_Vy2 = size(Vy,1), size(Vy,2)
+  size_ηv1, size_ηv2 = size(ηv,1), size(ηv,2)
 
-  for it = 1:nt # Physical stepping
+  # Initial conditions
+  Vx[:,2:end-1] .= Data.Array([Vbc*(x_g(ix,dx,Vx)-dx/2)/Lx for ix=1:size(Vx,1), iy=2:size(Vx,2)-1])
+  Vy[2:end-1,:] .= Data.Array([Vbc*(y_g(iy,dy,Vy)-dy/2)/Ly for ix=2:size(Vy,1)-1, iy=1:size(Vy,2)])
+  Vx[:,[1 end]] .= Vx[:,[2 end-1]]
+  Vy[[1 end],:] .= Vy[[2 end-1],:]
+  T[2:end-1,2:end-1] .= Data.Array([x_g(ix,dx,P)^2 + y_g(iy,dy,P)^2 < r^2 for ix=2:nx-1, iy=2:ny-1] .* Tamp)
+  T[:, [1 end]] .= T[:,[2 end-1]] 
+  T[[1 end], :] .= T[[2 end-1],:] 
+
+  # Preparation of visualisation
+  if do_visu
+    if (me==0) ENV["GKSwstype"]="nul"; if isdir("TM2D_out")==false mkdir("TM2D_out") end; loadpath = "./TM2D_out/"; anim = Animation(loadpath,String[]); println("Animation directory: $(anim.dir)") end
+    nx_v, ny_v = (nx-2)*dims[1], (ny-2)*dims[2]
+    if (nx_v*ny_v*sizeof(Data.Number) > 0.8*Sys.free_memory()) error("Not enough memory for visualization.") end
+    T_v   = zeros(nx_v, ny_v) # global array for visu
+    T_inn = zeros(nx-2, ny-2) # no halo local array for visu
+    Xi_g, Yi_g = LinRange(dx/2, Lx-dx/2, nx_v), LinRange(dy/2, Ly-dy/2, ny_v) # inner points only
+  end
+
+  # Physical time stepping
+  for it = 1:nt 
     Tt .= T     # temperature updates from previous timestep
+    t_tic = 0.0; niter = 0
     for iter = 1:iter_max # pseudo transient stepping
+      # start timer after warming up
+      if (iter==11) t_tic = Base.time(); niter = 0 end
       # update damped momentum residuals
-      dVxdτ0 .= dVxdτ .+ dampx.*dVxdτ0
-      dVydτ0 .= dVydτ .+ dampy.*dVydτ0
+      @parallel update_damping!(dVxdτ0, dVydτ0, dVxdτ, dVydτ, dampx, dampy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
 
       # compute 2nd order invariant of the deviatoric strain rate tensor
       @parallel compute_2invar!(ϵii2, Vx, Vy, dx, dy, nx, ny)
 
       # compute viscosity at cell centers and vertices
-      @parallel compute_viscosity!(ηc, ηv, ϵii2, n, T, T0, θη)  
+      @parallel compute_viscosity_c!(ηc, ϵii2, n, T, T0, θη, nx, ny) # inner cells
+      update_halo!(ηc)
+      @parallel compute_viscosity_v!(ηv, ηc, size_ηv1, size_ηv2)
 
-      # residuals
-      dPdτ  = - ∇V
-      dVxdτ = diff(τxy[2:end-1,:],dims=2)./dy .+ diff(τxx,dims=1)./dx
-      dVydτ = diff(τxy[:,2:end-1],dims=1)./dx .+ diff(τyy,dims=2)./dy
-      dTdτ  = (Tt.-T)./dt .- (diff(qx,dims=1)./dx .+ diff(qy,dims=2)./dy) .+ S  
+      # compute residuals for inner cells
+      @parallel compute_residuals_P_T!(dPdτ, dTdτ, P, Vx, Vy, T, Tt, ηc, ϵii2, n, T0, dt, dx, dy, nx, ny)
+      @parallel compute_residuals_Vx_Vy!(dVxdτ, dVydτ, P, Vx, Vy, ηv, ηc, λb, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
+
       # update velocities, pressure and temperature
-      Vx[2:end-1,:] .= Vx[2:end-1,:] .+ dτVx.*(dVxdτ .+ dampx.*dVxdτ0) 
-      Vy[:,2:end-1] .= Vy[:,2:end-1] .+ dτVy.*(dVydτ .+ dampy.*dVydτ0) 
-      P             .= P             .+ dτP .* dPdτ
-      T             .= T             .+ dτT .* dTdτ
-      # check residuals in L2 norm
-      if iter % nout == 0 
-        R_P  = sqrt(sum(dPdτ .^2))/length(dPdτ )
-        R_Vx = sqrt(sum(dVxdτ.^2))/length(dVxdτ)
-        R_Vy = sqrt(sum(dVydτ.^2))/length(dVydτ)
-        R_T  = sqrt(sum(dTdτ .^2))/length(dTdτ )
-        println(">>time = $(round(it*dt, sigdigits=3)), iterations = $(iter), R_P = $(round(R_P,sigdigits=3)), R_Vx = $(round(R_Vx,sigdigits=3)), R_T = $(round(R_T,sigdigits=3))")
+      @parallel stepping_pseudo_P_T!(P, T, dPdτ, dTdτ, ηc, θp, θT, λb, dx, dy, nx, ny)  # inner cells
+      @parallel stepping_pseudo_Vx_Vy!(Vx, Vy, dVxdτ, dVydτ, dVxdτ0, dVydτ0, ηc, λb, θv, dampx, dampy, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2) # inner cells
+       T[:, [1 end]] .=  T[:,[2 end-1]] # zero heat flux at top and bottom boundaries
+       T[[1 end], :] .=  T[[2 end-1],:] # zero heat flux at left and right boundaries
+      Vx[:, [1 end]] .= Vx[:,[2 end-1]] # zero shear stress at top and bottom boundaries
+      Vy[[1 end], :] .= Vy[[2 end-1],:] # zero shear stress at left and right boundaries
+      update_halo!(P, T, Vx, Vy)
+      niter += 1
+
+      # check residuals
+      if iter % n_check == 0 
+        R_P  = norm_g( Array( dPdτ[2:end,2:end]) )/( (nx_g()-2)*(ny_g()-2) )
+        R_Vx = norm_g( Array(dVxdτ[2:end,2:end]) )/( (nx_g()-2)*(ny_g()-2) )
+        R_Vy = norm_g( Array(dVydτ[2:end,2:end]) )/( (nx_g()-2)*(ny_g()-2) )
+        R_T  = norm_g( Array( dTdτ[2:end,2:end]) )/( (nx_g()-2)*(ny_g()-2) )
+        if (me==0) println(">>time = $(round(it*dt, sigdigits=3)), iter = $(iter), R_P = $(round(R_P,sigdigits=3)), R_Vx = $(round(R_Vx,sigdigits=3)), R_Vy = $(round(R_Vy,sigdigits=3)), R_T = $(round(R_T,sigdigits=3))") end
         if max(R_P, R_Vx, R_Vy, R_T) < tol break; end
-      end
+      end  
     end # end pseudo transient stepping
 
+    # performance evaluation
+    # t_toc = Base.time() - t_tic
+    # A_eff = 3/1e9*nx_g()*ny_g()*sizeof(Float64)  # Effective main memory access per iteration [GB]
+    # t_it  = t_toc/niter                                 # Execution time per iteration [s]
+    # T_eff = A_eff/t_it                                  # Effective memory throughput [GB/s]
+    # if (me==0) println("-----time = $(round(it*dt, sigdigits=3)) s, T_eff = $(round(T_eff, sigdigits=3)) GB/s-----") end
+
     # visualization
-    if do_visu && (it % n_vis == 0)
+    if do_visu && (it%n_vis == 0) && me==0
+      T_inn .= Array(T[2:end-1,2:end-1]); gather!(T_inn, T_v)
       opts = (aspect_ratio=1, xlims=(xc[1], xc[end]), ylims=(yc[1], yc[end]), c=:davos, xlabel="Lx", ylabel="Ly", title="time = $(round(it*dt, sigdigits=3))")
-      display(heatmap(xc, yc, Tt'; opts...))
+      display(heatmap(Xi_g, Yi_g, Array(Tt)'; opts...)); frame(anim)
     end
 
   end # end physical stepping 
-    
-  return
+
+  # Save animation
+  if (do_visu && me==0) gif(anim, "TM_2D.gif", fps = 5)  end
+
+  finalize_global_grid()
+  return ηc, ηv, dVxdτ, dVydτ, Vx, Vy, P, T
 end
 
-TM_2D(; do_visu=true)
+# TM_2D(; do_visu = false)
