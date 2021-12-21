@@ -77,8 +77,8 @@ using Plots, Printf
       η0                   = ϵii2.^(-(1-1/n)/2).*exp.( -T.*(1 ./(1 .+ T./T0)) )   # physical viscosity
       ηc                  .= exp.(θη.*log.(ηc) + (1-θη).*log.(η0))                # effective viscosity
       ηv[2:end-1,2:end-1] .= 0.25.*(ηc[1:end-1,1:end-1] .+ ηc[2:end,2:end] .+ ηc[1:end-1,2:end] .+ ηc[2:end,1:end-1]) # interpolate  
-      ηv[   :   ,[1 end]] .= ηv[:,[2 end-1]]
-      ηv[[1 end],   :   ] .= ηv[[2 end-1],:]
+      # ηv[   :   ,[1 end]] .= ηv[:,[2 end-1]]
+      # ηv[[1 end],   :   ] .= ηv[[2 end-1],:]
       # stress 
       τxx = 2 .* ηc .*(ϵxx .+ ηb.*∇V) .- P  # normal stress xx-component
       τyy = 2 .* ηc .*(ϵyy .+ ηb.*∇V) .- P  # normal stress yy-component
