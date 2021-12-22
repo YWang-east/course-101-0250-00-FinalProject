@@ -32,6 +32,7 @@ end
 @views norm_g(A) = (sum2_l = sum(A.^2); sqrt(MPI.Allreduce(sum2_l, MPI.SUM, MPI.COMM_WORLD)))
 
 @views function diffusion_3D(; do_visu=false)
+    do_print = false
     # Physics
     Lx ,Ly ,Lz  = 10.0, 10.0, 10.0  # domain size
     Lxc,Lyc,Lzc = Lx/2, Ly/2, Lz/2  # domain center
@@ -94,7 +95,7 @@ end
             if iter % ncheck == 0
                 @parallel compute_residuals!(R_H, Hτ, H, D_dx, D_dy, D_dz, dt, _dx, _dy, _dz, size_H1_2, size_H2_2, size_H3_2)
                 err = norm_g(Array(R_H))/(nx_v*ny_v*nz_v)
-                if (me==0) println(">> time = $(round(it*dt, sigdigits=3))s, iterations = $(iter), residual = $(round(err, sigdigits=3))") end
+                if (me==0 && do_print) println(">> time = $(round(it*dt, sigdigits=3))s, iterations = $(iter), residual = $(round(err, sigdigits=3))") end
                 if err < tol break; end
             end
         end
@@ -104,7 +105,7 @@ end
         A_eff = 3/1e9*nx_g()*ny_g()*nz_g()*sizeof(Float64)  # Effective main memory access per iteration [GB]
         t_it  = t_toc/niter                                 # Execution time per iteration [s]
         T_eff = A_eff/t_it                                  # Effective memory throughput [GB/s]
-        if (me==0) println("-----time = $(round(it*dt, sigdigits=3)) s, T_eff = $(round(T_eff, sigdigits=3)) GB/s-----") end
+        if (me==0 && do_print) println("-----time = $(round(it*dt, sigdigits=3)) s, T_eff = $(round(T_eff, sigdigits=3)) GB/s-----") end
         
         # Visualization
         if do_visu && me==0
