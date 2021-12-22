@@ -28,12 +28,6 @@ macro dτVx(ix,iy)  esc(:( θv/4.1*min(dx,dy)^2 /(ηc[$ix,$iy]+ηc[$ix+1,$iy])/2
 macro dτVy(ix,iy)  esc(:( θv/4.1*min(dx,dy)^2 /(ηc[$ix,$iy]+ηc[$ix,$iy+1])/2/(1.0+λb) )) end
 macro  dτT(ix,iy)  esc(:( θT/4.1*min(dx,dy)^2 )) end
 
-@parallel_indices (ix,iy) function update_damping!(dVxdτ0, dVydτ0, dVxdτ, dVydτ, dampx, dampy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
-  if ( ix<=size_Vx1 && iy<=size_Vx2 ) dVxdτ0[ix,iy] = dVxdτ[ix,iy] + dampx * dVxdτ0[ix,iy] end
-  if ( ix<=size_Vy1 && iy<=size_Vy2 ) dVydτ0[ix,iy] = dVydτ[ix,iy] + dampy * dVydτ0[ix,iy] end
-  return
-end
-
 @parallel_indices (ix,iy) function compute_2invar!(ϵii2, Vx, Vy, dx, dy, nx, ny)
   if ( ix<=(nx-2) && iy<=(ny-2) ) 
     ϵii2[ix+1,iy+1] = ( 0.5*(@ϵxx(ix+1,iy+1)^2 + @ϵyy(ix+1,iy+1)^2) + (0.25*(@ϵxy(ix,iy) + @ϵxy(ix+1,iy) + @ϵxy(ix,iy+1) + @ϵxy(ix+1,iy+1)))^2 )^0.5 
@@ -57,17 +51,22 @@ end
 
 @parallel_indices (ix,iy) function compute_residuals_P_T!(dPdτ, dTdτ, P, Vx, Vy, T, Tt, ηc, ϵii2, n, T0, dt, dx, dy, nx, ny)
   if ( ix<=(nx-2) && iy<=(ny-2) )
-    dPdτ[ix+1,iy+1] = - @∇V(ix,iy)
+    dPdτ[ix+1,iy+1] = - @∇V(ix+1,iy+1)
     dTdτ[ix+1,iy+1] = (Tt[ix+1,iy+1]-T[ix+1,iy+1])/dt - (@qx(ix+1,iy)-@qx(ix,iy))/dx - (@qy(ix,iy+1)-@qy(ix,iy))/dy + @S(ix+1,iy+1)  
   end
   return
 end
 
-@parallel_indices (ix,iy) function compute_residuals_Vx_Vy!(dVxdτ, dVydτ, P, Vx, Vy, ηv, ηc, λb, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
-  if ( ix<=(size_Vx1-2) && iy<=(size_Vx2-2) ) dVxdτ[ix+1,iy+1] = (@τxy(ix+1,iy+1) - @τxy(ix+1,iy))/dy + (@τxx(ix+2,iy+1) - @τxx(ix+1,iy+1))/dx end
-  if ( ix<=(size_Vy1-2) && iy<=(size_Vy2-2) ) dVydτ[ix+1,iy+1] = (@τxy(ix+1,iy+1) - @τxy(ix,iy+1))/dx + (@τyy(ix+1,iy+2) - @τyy(ix+1,iy+1))/dy end
+@parallel_indices (ix,iy) function compute_residuals_Vx_Vy!(dVxdτ, dVydτ, dVxdτ0, dVydτ0, P, Vx, Vy, ηv, ηc, λb, dampx, dampy, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
+  if ( ix<=(size_Vx1-2) && iy<=(size_Vx2-2) )
+    dVxdτ0[ix+1,iy+1] = dVxdτ[ix+1,iy+1] + dampx * dVxdτ0[ix+1,iy+1] 
+     dVxdτ[ix+1,iy+1] = (@τxy(ix+1,iy+1) - @τxy(ix+1,iy))/dy + (@τxx(ix+2,iy+1) - @τxx(ix+1,iy+1))/dx end
+  if ( ix<=(size_Vy1-2) && iy<=(size_Vy2-2) ) 
+    dVydτ0[ix+1,iy+1] = dVydτ[ix+1,iy+1] + dampy * dVydτ0[ix+1,iy+1]
+     dVydτ[ix+1,iy+1] = (@τxy(ix+1,iy+1) - @τxy(ix,iy+1))/dx + (@τyy(ix+1,iy+2) - @τyy(ix+1,iy+1))/dy end
   return
 end
+
 
 @parallel_indices (ix,iy) function stepping_pseudo_P_T!(P, T, dPdτ, dTdτ, ηc, θp, θT, λb, dx, dy, nx, ny)
   if ( ix<=(nx-2) && iy<=(ny-2) )
@@ -98,23 +97,22 @@ end
   nx, ny = 32*2^2, 32*2^2       # local grid size
   tol    = 1e-5                 # non-linear tolerance
   ξ      = 10.0                 # physical steps reduction for temperature
-  θp,θv,θT = 0.5, 0.5, 0.5                  # PT steps reduction for pressure, velocities and temperature 
   λb     = 1.0                  # numerical bulk viscosity
   θη     = 0.9                  # relaxation factor for viscosity
   ν      = 4.0                  # damping factor for velocity residuals
-  nt     = 5                   # number of time steps
+  nt     = 5                    # number of time steps
   iter_max = 1e6                # max PT iterations
-  n_check  = 100                  # residuals checking step
-  n_vis  = 1                    # visualization step
-  
+  n_check  = 100                # residuals checking step
+  n_vis    = 1                  # visualization step
+  θp,θv,θT = 0.5, 0.5, 0.5      # PT steps reduction for pressure, velocities and temperature 
   
   # Derived numerics
   me, dims = init_global_grid(nx, ny, 1)  # Initialize 2D MPI 
   @static if GPU_USE select_device() end  # select one GPU per MPI local rank (if >1 GPU per node)
-  dx, dy = Lx/(nx_g()-2), Ly/(ny_g()-2)
-  dt     = ξ*min(dx, dy)^2/4.1   # physical time step  
-  dampx  = 1 - ν/(nx-2)              # damping for x-momentum residuals
-  dampy  = 1 - ν/(ny-2)              # damping for y-momentum residuals
+  dx, dy = Lx/(nx_g()-2), Ly/(ny_g()-2)   # local grid step
+  dt     = ξ*min(dx, dy)^2/4.1            # physical time step  
+  dampx  = 1 - ν/(nx-2)                   # damping for x-momentum residuals
+  dampy  = 1 - ν/(ny-2)                   # damping for y-momentum residuals
 
   # Array initialisation
   P      = @zeros(nx  , ny  )    # pressure 
@@ -125,10 +123,10 @@ end
   Vx     = @zeros(nx-1, ny  )    # x-velocity 
   Vy     = @zeros(nx  , ny-1)    # y-velocity
   ϵii2   = @zeros(nx  , ny  )    # 2nd order invariant
-  dPdτ   = copy(P)                        # continuity residuals
-  dTdτ   = copy(T)                        # temperature residuals
-  dVxdτ  = copy(Vx)                       # x-momentum residuals
-  dVydτ  = copy(Vy)                       # y-momentum residuals
+  dPdτ   = copy(P)               # continuity residuals
+  dTdτ   = copy(T)               # temperature residuals
+  dVxdτ  = copy(Vx)              # x-momentum residuals
+  dVydτ  = copy(Vy)              # y-momentum residuals
   dVxdτ0 = copy(dVxdτ)
   dVydτ0 = copy(dVydτ)
   size_Vx1, size_Vx2 = size(Vx,1), size(Vx,2)
@@ -151,7 +149,7 @@ end
     if (nx_v*ny_v*sizeof(Data.Number) > 0.8*Sys.free_memory()) error("Not enough memory for visualization.") end
     T_v   = zeros(nx_v, ny_v) # global array for visu
     T_inn = zeros(nx-2, ny-2) # no halo local array for visu
-    Xi_g, Yi_g = LinRange(dx/2, Lx-dx/2, nx_v), LinRange(dy/2, Ly-dy/2, ny_v) # inner points only
+    xc, yc = LinRange(dx/2, Lx-dx/2, nx_v), LinRange(dy/2, Ly-dy/2, ny_v) # inner cell centers
   end
 
   # Physical time stepping
@@ -161,8 +159,6 @@ end
     for iter = 1:iter_max # pseudo transient stepping
       # start timer after warming up
       if (iter==11) t_tic = Base.time(); niter = 0 end
-      # update damped momentum residuals
-      @parallel update_damping!(dVxdτ0, dVydτ0, dVxdτ, dVydτ, dampx, dampy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
 
       # compute 2nd order invariant of the deviatoric strain rate tensor
       @parallel compute_2invar!(ϵii2, Vx, Vy, dx, dy, nx, ny)
@@ -173,10 +169,9 @@ end
       @parallel compute_viscosity_v!(ηv, ηc, size_ηv1, size_ηv2)
 
       # compute residuals for inner cells
-      @parallel compute_residuals_Vx_Vy!(dVxdτ, dVydτ, P, Vx, Vy, ηv, ηc, λb, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
+      @parallel compute_residuals_Vx_Vy!(dVxdτ, dVydτ, dVxdτ0, dVydτ0, P, Vx, Vy, ηv, ηc, λb, dampx, dampy, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2)
       @parallel compute_residuals_P_T!(dPdτ, dTdτ, P, Vx, Vy, T, Tt, ηc, ϵii2, n, T0, dt, dx, dy, nx, ny)
       
-
       # update velocities, pressure and temperature
       @parallel stepping_pseudo_Vx_Vy!(Vx, Vy, dVxdτ, dVydτ, dVxdτ0, dVydτ0, ηc, λb, θv, dampx, dampy, dx, dy, size_Vx1, size_Vx2, size_Vy1, size_Vy2) # inner cells
       @parallel stepping_pseudo_P_T!(P, T, dPdτ, dTdτ, ηc, θp, θT, λb, dx, dy, nx, ny)  
@@ -184,7 +179,7 @@ end
        T[[1 end], :] .=  T[[2 end-1],:] # zero heat flux at left and right boundaries
       Vx[:, [1 end]] .= Vx[:,[2 end-1]] # zero shear stress at top and bottom boundaries
       Vy[[1 end], :] .= Vy[[2 end-1],:] # zero shear stress at left and right boundaries
-      update_halo!(P, T, Vx, Vy)
+      update_halo!(T, Vx, Vy)
       niter += 1
 
       # check residuals
@@ -199,17 +194,17 @@ end
     end # end pseudo transient stepping
 
     # performance evaluation
-    # t_toc = Base.time() - t_tic
-    # A_eff = 3/1e9*nx_g()*ny_g()*sizeof(Float64)  # Effective main memory access per iteration [GB]
-    # t_it  = t_toc/niter                                 # Execution time per iteration [s]
-    # T_eff = A_eff/t_it                                  # Effective memory throughput [GB/s]
-    # if (me==0) println("-----time = $(round(it*dt, sigdigits=3)) s, T_eff = $(round(T_eff, sigdigits=3)) GB/s-----") end
+    t_toc = Base.time() - t_tic
+    A_eff = 10/1e9*nx_g()*ny_g()*sizeof(Float64)  # Effective main memory access per iteration [GB]
+    t_it  = t_toc/niter                           # Execution time per iteration [s]
+    T_eff = A_eff/t_it                            # Effective memory throughput [GB/s]
+    if (me==0) println("-----time = $(round(it*dt, sigdigits=3)) s, T_eff = $(round(T_eff, sigdigits=3)) GB/s-----") end
 
     # visualization
     if do_visu && (it%n_vis == 0) && me==0
       T_inn .= Array(T[2:end-1,2:end-1]); gather!(T_inn, T_v)
-      opts = (aspect_ratio=1, xlims=(Xi_g[1], Xi_g[end]), ylims=(Yi_g[1], Yi_g[end]), c=:davos, xlabel="Lx", ylabel="Ly", title="time = $(round(it*dt, sigdigits=3))")
-      display(heatmap(Xi_g, Yi_g, Array(T_v)'; opts...)); frame(anim)
+      opts = (aspect_ratio=1, xlims=(xc[1], xc[end]), ylims=(yc[1], yc[end]), xlabel="Lx", ylabel="Ly", title="time = $(round(it*dt, sigdigits=3))")
+      display(heatmap(xc, yc, Array(T_v)'; opts...)); frame(anim)
     end
 
   end # end physical stepping 
@@ -218,7 +213,6 @@ end
   if (do_visu && me==0) gif(anim, "TM_2D.gif", fps = 5)  end
 
   finalize_global_grid()
-  # return dVxdτ0, dVydτ0, ηc, ηv, dPdτ, dVxdτ, dVydτ, Vx, Vy, P, T
   return
 end
 
