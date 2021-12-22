@@ -29,5 +29,4 @@ jobs:
             ${{ runner.os }}-test-
             ${{ runner.os }}-
       - uses: julia-actions/julia-buildpkg@v1
-      - run: julia --check-bounds=yes --color=yes -e 'cd("test");
-                                                      import Pkg; Pkg.activate("."); Pkg.test()'
+      - run: julia --check-bounds=yes --color=yes -e 'import Pkg; Pkg.activate("."); Pkg.test()'
