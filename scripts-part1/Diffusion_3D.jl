@@ -1,5 +1,5 @@
 # run './mpiexecjl -n 4 julia --project scripts-part1/Diffusion_3D.jl' for multi-XPUs
-const USE_GPU = true
+const USE_GPU = false
 using ParallelStencil
 using ParallelStencil.FiniteDifferences3D
 @static if USE_GPU
@@ -40,8 +40,8 @@ end
     dt          = 0.2               # physical time step
 
     # Numerics
-    nx, ny, nz = 2^7, 2^7, 2^7      # local grid size    
-    ncheck     = 200                # check residuals every ncheck pseudo time steps
+    nx, ny, nz = 2^5, 2^5, 2^5      # local grid size    
+    ncheck     = 100                # check residuals every ncheck pseudo time steps
     iter_max   = 1e6                # max pseudo time iterations
     tol        = 1e-8               # tolerance for converging
 

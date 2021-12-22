@@ -10,3 +10,4 @@ plots_out1
 plots_out2
 plot_perf.jl
 test.jl
+TM2D_out
