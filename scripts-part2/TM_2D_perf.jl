@@ -116,8 +116,8 @@ end
   θη     = 0.9                  # relaxation factor for viscosity
   ν      = 4.0                  # damping factor for velocity residuals
   nt     = 5                    # number of time steps
-  iter_max = 1e3                # max PT iterations
-  n_check  = 2e2                # residuals checking step
+  iter_max = 1e6                # max PT iterations
+  n_check  = 1e3                # residuals checking step
   n_vis    = 1                  # visualization step
   θp,θv,θT = 0.5, 0.5, 0.5      # PT steps reduction for pressure, velocities and temperature 
   
@@ -231,4 +231,4 @@ end
   return
 end
 
-TM_2D(; do_visu = false, do_print = false)
+TM_2D(; do_visu = true, do_print = true)
