@@ -18,7 +18,7 @@ using Plots, Printf
   θp     = 0.5                  # PT steps reduction for pressure 
   θv     = 0.5                  # PT steps reduction for velocity
   θT     = 0.5                  # PT steps reduction for temperature
-  ηb     = 1.0                  # numerical bulk viscosity
+  λb     = 1.0                  # numerical bulk viscosity
   θη     = 0.9                  # relaxation factor for viscosity
   ν      = 4.0                  # damping factor for velocity residuals
   nt     = 20                   # number of time steps
@@ -94,17 +94,17 @@ using Plots, Printf
       ηc                  .= exp.(θη.*log.(ηc) + (1-θη).*log.(η0))                # effective viscosity
       ηv[2:end-1,2:end-1] .= 0.25.*(ηc[1:end-1,1:end-1] .+ ηc[2:end,2:end] .+ ηc[1:end-1,2:end] .+ ηc[2:end,1:end-1]) # interpolate  
       # stress 
-      τxx = 2 .* ηc .*(ϵxx .+ ηb.*∇V) .- P  
-      τyy = 2 .* ηc .*(ϵyy .+ ηb.*∇V) .- P  
+      τxx = 2 .* ηc .*(ϵxx .+ λb.*∇V) .- P  
+      τyy = 2 .* ηc .*(ϵyy .+ λb.*∇V) .- P  
       τxy = 2 .* ηv .* ϵxyv                 
       # heat fluxes and source
       qx[2:end-1,:] = -diff(T,dims=1)./dx
       qy[:,2:end-1] = -diff(T,dims=2)./dy
       S             = 4 .* ηc .* ϵii2       
       # pseudo-time steps
-      dτP  = θp*4.1/ min(nx,ny)   .* ηc .* (1.0+ηb)
-      dτVx = θv/4.1*(min(dx,dy)^2 ./( 0.5.*(ηc[2:end,:] + ηc[1:end-1,:]) ))./(1+ηb)
-      dτVy = θv/4.1*(min(dx,dy)^2 ./( 0.5.*(ηc[:,2:end] + ηc[:,1:end-1]) ))./(1+ηb)
+      dτP  = θp*4.1/ min(nx,ny)   .* ηc .* (1.0+λb)
+      dτVx = θv/4.1*(min(dx,dy)^2 ./( 0.5.*(ηc[2:end,:] + ηc[1:end-1,:]) ))./(1+λb)
+      dτVy = θv/4.1*(min(dx,dy)^2 ./( 0.5.*(ηc[:,2:end] + ηc[:,1:end-1]) ))./(1+λb)
       dτT  = θT/4.1* min(dx,dy)^2
       # residuals
       dVxdτ = diff(τxy[2:end-1,:],dims=2)./dy .+ diff(τxx,dims=1)./dx
@@ -138,7 +138,6 @@ using Plots, Printf
   # Save animation
   if (do_visu ) gif(anim, "TM_2D.gif", fps = 5)  end
     
-  # return dVxdτ0, dVydτ0, ηc, ηv, dPdτ, dVxdτ, dVydτ, Vx, Vy, P, T
   return
 end
 
